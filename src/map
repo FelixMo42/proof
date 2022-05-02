@@ -1,0 +1,11 @@
+[H(a), H(b)] = 0
+
+[H(a), E(b)] =  C(a, b) * E(b)
+[H(a), F(b)] = -C(a, b) * E(b)
+
+[E(a), F(a)] = H(a)
+[E(a), F(b)] = 0
+
+[E(a), H(b)] = -[H(b), E(a)]
+[F(a), H(b)] = -[H(b), F(a)]
+[F(a), E(b)] = -[E(b), F(a)]
