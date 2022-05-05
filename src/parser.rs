@@ -45,7 +45,7 @@ impl<'a> Parser<'a> {
 
 ///////
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AST {
     Named(String),
     Value(Value),
@@ -55,6 +55,20 @@ pub enum AST {
     Kind(String, String),
     Negative(Box<AST>),
     C(Box<AST>, Box<AST>),
+}
+
+impl AST {
+    pub fn flip(&self) -> Option<Self> {
+        if let AST::Braket(a, b) = self {
+            return Some(AST::Braket(Box::new(*b.clone()), Box::new(*a.clone())))
+        } else {
+            return None;
+        }
+    }
+
+    pub fn negate(&self) -> Self {
+        return AST::Negative(Box::new(self.clone()));
+    }
 }
 
 ///////
@@ -144,8 +158,17 @@ fn parse_negative(src: Parser) -> Option<(Parser, AST)> {
     return Some((src, AST::Negative(Box::new(value))));
 }
 
+fn parse_paren(src: Parser) -> Option<(Parser, AST)> {
+    let src = src.starts_with_char('(')?;
+    let src = src.skip_whitespace();
+    let (src, value) = parse_value(src)?;
+    let src = src.starts_with_char(')')?;
+    return Some((src, value));
+}
+
 fn parse_value(src: Parser) -> Option<(Parser, AST)> {
-    let (src, a) = parse_c(src)
+    let (src, a) = parse_paren(src)
+        .or_else(|| parse_c(src))
         .or_else(|| parse_named(src))
         .or_else(|| parse_number_value(src))
         .or_else(|| parse_braket(src))

@@ -9,8 +9,8 @@ use value::Value;
 struct Scope(HashMap<String, Value>);
 
 impl Scope {
-    fn set(&mut self, name: String, value: Value) {
-        self.0.insert(name, value);
+    fn set(&mut self, name: &str, value: Value) {
+        self.0.insert(name.to_string(), value);
     }
 
     fn get(&self, name: &str) -> Option<Value> {
@@ -28,7 +28,7 @@ impl Scope {
     }
 }
 
-fn ast_match(pattern: AST, value: &Value, scope: &mut Scope) -> bool {
+fn ast_match(pattern: &AST, value: &Value, scope: &mut Scope) -> bool {
     match pattern {
         AST::Named(name) => {
             if let Some(current) = scope.get(&name) {
@@ -38,17 +38,17 @@ fn ast_match(pattern: AST, value: &Value, scope: &mut Scope) -> bool {
                 return true;
             }
         }
-        AST::Value(current) => return &current == value,
+        AST::Value(current) => return current == value,
         AST::Braket(a, b) => {
             if let Value::Braket(va, vb) = value {
-                return ast_match(*a, va.as_ref(), scope) && ast_match(*b, vb.as_ref(), scope);
+                return ast_match(a, va.as_ref(), scope) && ast_match(b, vb.as_ref(), scope);
             } else {
                 return false;
             }
         }
         AST::Kind(name, avalue) => {
             if let Value::Kind(vname, vvalue) = value {
-                if &name == vname {
+                if name == vname {
                     scope.set(avalue, Value::Number(*vvalue));
                     return true;
                 }
@@ -57,20 +57,22 @@ fn ast_match(pattern: AST, value: &Value, scope: &mut Scope) -> bool {
         }
         AST::Negative(pattern) => {
             if let Value::Negative(value) = value {
-                return ast_match(*pattern, value, scope);
+                return ast_match(pattern, value, scope);
             }
 
             return false;
         }
         AST::Add(a, b) => {
             if let Value::Add(va, vb) = value {
-                return ast_match(*a, va, scope) && ast_match(*b, vb, scope);
+                return (ast_match(a, va, scope) && ast_match(b, vb, scope))
+                    || (ast_match(a, vb, scope) && ast_match(b, va, scope));
             }
             return false;
         }
         AST::Mul(a, b) => {
             if let Value::Mul(va, vb) = value {
-                return ast_match(*a, va, scope) && ast_match(*b, vb, scope);
+                return (ast_match(a, va, scope) && ast_match(b, vb, scope))
+                    || (ast_match(a, vb, scope) && ast_match(b, va, scope));
             }
             return false;
         }
@@ -86,7 +88,7 @@ const ARR: [[i32; 3]; 3] = [
     [ -1, -1,  2 ]
 ];
 
-fn ast_number(expresion: AST, scope: &Scope) -> usize {
+fn ast_number(expresion: &AST, scope: &Scope) -> usize {
     let value = ast_build(expresion, scope);
 
     if let Value::Number(num) = value {
@@ -96,126 +98,87 @@ fn ast_number(expresion: AST, scope: &Scope) -> usize {
     panic!("Failed to get number for ast_number!");
 }
 
-fn ast_build(expresion: AST, scope: &Scope) -> Value {
+fn ast_build(expresion: &AST, scope: &Scope) -> Value {
     match expresion {
         AST::Named(name) => scope.get(&name).expect(&format!("Could not find variable {name}!")),
-        AST::Value(value) => value,
-        AST::Kind(name, value) => Value::Kind(name, scope.get_number(&value)),
-        AST::Negative(expresion) => Value::Negative(Box::new(ast_build(*expresion, scope))),
+        AST::Value(value) => value.clone(),
+        AST::Kind(name, value) => Value::Kind(name.clone(), scope.get_number(&value)),
+        AST::Negative(expresion) => Value::Negative(Box::new(ast_build(expresion, scope))),
         AST::Braket(a, b) => Value::Braket(
-            Box::new(ast_build(*a, scope)),
-            Box::new(ast_build(*b, scope))
+            Box::new(ast_build(a, scope)),
+            Box::new(ast_build(b, scope))
         ),
         AST::Add(a, b) => Value::Add(
-            Box::new(ast_build(*a, scope)),
-            Box::new(ast_build(*b, scope))
+            Box::new(ast_build(a, scope)),
+            Box::new(ast_build(b, scope))
         ),
         AST::Mul(a, b) => Value::Mul(
-            Box::new(ast_build(*a, scope)),
-            Box::new(ast_build(*b, scope))
+            Box::new(ast_build(a, scope)),
+            Box::new(ast_build(b, scope))
         ),
-        AST::C(a, b) => Value::Number(ARR[ast_number(*a, scope)][ast_number(*b, scope)])
+        AST::C(a, b) => {
+            let value = ARR[ast_number(a, scope) - 1][ast_number(b, scope) - 1];
+            if value >= 0 {
+                Value::Number(value)
+            } else {
+                Value::Negative(Box::new(Value::Number(-value)))
+            }
+        }
     }
 }
 
-fn ast_match_and_build(value: &Value) -> Option<Value> {
-    let patterns: Vec<(AST, AST)> = parser::load("src/map");
-
+fn ast_match_and_build(value: Value, patterns: &Vec<(AST, AST)>) -> Value {
     for (pattern, expresion) in patterns {
         let scope = &mut Scope(HashMap::new());
 
-        if ast_match(pattern, value, scope) {
-            return Some(ast_build(expresion, scope));
+        if ast_match(&pattern, &value, scope) {
+            return simplify(ast_build(expresion, scope), patterns);
+        }
+
+        if let Some(pattern) = pattern.flip() {
+            if ast_match(&pattern, &value, scope) {
+                return simplify(ast_build(&expresion.negate(), scope), patterns);
+            }
         }
     }
 
-    return None;
+    return value;
 }
 
-fn simplify(value: &Value) -> Value {
-    if let Some(value) = ast_match_and_build(value) {
-        return value;
-    }
-
+fn simplify(value: Value, patterns: &Vec<(AST, AST)>) -> Value {
     match value {
         Value::Add(a, b) => {
-            if let Value::Number(a) = **a {
-                if let Value::Number(b) = **b {
-                    return Value::Number(a + b);
-                }
-            }
-
-            return Value::Add(Box::new(simplify(a)), Box::new(simplify(b)))
+            return ast_match_and_build(Value::Add(Box::new(simplify(*a, patterns)), Box::new(simplify(*b, patterns))), patterns)
         }
         Value::Negative(value) => {
-            if let Value::Negative(value) = *value.clone() {
-                return simplify(&value);
-            }
-
-            return Value::Negative(Box::new(simplify(value)))
+            return ast_match_and_build(Value::Negative(Box::new(simplify(*value, patterns))), patterns)
         }
-        Value::Mul(a, b) => {
-            if **a == Value::zero() || **b == Value::zero() {
-                return Value::Number(0);
-            }
-
-
-            if let Value::Number(a) = **a {
-                if let Value::Number(b) = **b {
-                    return Value::Number(a * b);
-                }
-            }
-
-            if **a == Value::one() {
-                return simplify(b);
-            }
-
-            if **b == Value::one() {
-                return simplify(a);
-            }
-
-            if let Value::Number(a) = **a {
-                if a < 0 {
-                    return Value::Negative(
-                        Box::new(Value::Mul(Box::new(Value::Number(-a)), Box::new(simplify(b))))
-                    )
-                }
-            }
-
-            if let Value::Number(b) = **b {
-                if b < 0 {
-                    return Value::Negative(
-                        Box::new(Value::Mul(Box::new(Value::Number(-b)), Box::new(simplify(a))))
-                    )
-                }
-            }
-
-            return Value::Mul(Box::new(simplify(a)), Box::new(simplify(b)))
+        Value::Mul(a, b) => {    
+            return ast_match_and_build(Value::Mul(Box::new(simplify(*a, patterns)), Box::new(simplify(*b, patterns))), patterns)
         }
         Value::Braket(a, b) => {
-            return Value::Braket(Box::new(simplify(a)), Box::new(simplify(b)))
+            return ast_match_and_build(Value::Braket(Box::new(simplify(*a, patterns)), Box::new(simplify(*b, patterns))), patterns)
         }
-        Value::Number(_) | Value::Kind(_, _) => return value.clone(),
+        Value::Number(_) => return value,
+        Value::Kind(_, _) => return value,
     }
-}
-
-fn source_build(src: &str) -> Value {
-    return ast_build(parser::parse(src), &Scope(HashMap::new()));
 }
 
 fn main() {
-    let mut value = source_build("[E(1), H(2)]");
+    let patterns = &parser::load("./src/map");
+    let mut value = Value::Kind("E".to_string(), 1);
 
-    println!("  {}", value);
-
-    loop {
-        let new_value = simplify(&value);
-
-        if new_value == value {
-            break;
+    for i in 1..100 {
+        println!(">> {}", i);
+        value = Value::Braket(Box::new(value.clone()), Box::new(Value::Kind("E".to_string(), i % 3 + 1)));
+        for f in 1..=3 {
+            let value = Value::Braket(Box::new(value.clone()), Box::new(Value::Kind("F".to_string(), f))); 
+            if simplify(value, patterns) == Value::zero() {
+                println!("zero! {i} {f}");
+                return;
+            }
         }
-
-        println!("= {}", new_value);
-        value = new_value;
     }
+
+    println!("no zero found");
 }
