@@ -4,7 +4,7 @@ pub mod value;
 use std::collections::HashMap;
 
 use parser::AST;
-use value::Value;
+use value::*;
 
 struct Scope(HashMap<String, Value>);
 
@@ -64,15 +64,13 @@ fn ast_match(pattern: &AST, value: &Value, scope: &mut Scope) -> bool {
         }
         AST::Add(a, b) => {
             if let Value::Add(va, vb) = value {
-                return (ast_match(a, va, scope) && ast_match(b, vb, scope))
-                    || (ast_match(a, vb, scope) && ast_match(b, va, scope));
+                return ast_match(a, va, scope) && ast_match(b, vb, scope);
             }
             return false;
         }
         AST::Mul(a, b) => {
             if let Value::Mul(va, vb) = value {
-                return (ast_match(a, va, scope) && ast_match(b, vb, scope))
-                    || (ast_match(a, vb, scope) && ast_match(b, va, scope));
+                return ast_match(a, va, scope) && ast_match(b, vb, scope);
             }
             return false;
         }
@@ -154,6 +152,12 @@ fn simplify(value: Value, patterns: &Vec<(AST, AST)>) -> Value {
             return ast_match_and_build(Value::Negative(Box::new(simplify(*value, patterns))), patterns)
         }
         Value::Mul(a, b) => {    
+            if let Some(a) = a.into_number() {
+                if let Some(b) = b.into_number() {
+                    return number(a * b);
+                }
+            }
+
             return ast_match_and_build(Value::Mul(Box::new(simplify(*a, patterns)), Box::new(simplify(*b, patterns))), patterns)
         }
         Value::Braket(a, b) => {
@@ -164,21 +168,206 @@ fn simplify(value: Value, patterns: &Vec<(AST, AST)>) -> Value {
     }
 }
 
-fn main() {
-    let patterns = &parser::load("./src/map");
-    let mut value = Value::Kind("E".to_string(), 1);
+fn standerdize(value: Value) -> Value {
+    match value {
+        Value::Braket(a, b) => {
+            match (a.as_ref(), b.as_ref()) {
+                (Value::Kind(_, na), Value::Kind(_, nb)) => {
+                    if na > nb {
+                        Value::Braket(a, b)
+                    } else {
+                        Value::Braket(b, a)
+                    }
+                }
+                (k @ Value::Kind(_, _),  b @ Value::Braket(_, _)) => {
+                    match standerdize(b.clone()) {
+                        Value::Negative(b) => Value::Braket(Box::new(standerdize(*b)), Box::new(k.clone())),
+                        b => Value::Negative(Box::new(Value::Braket(Box::new(standerdize(b.clone())), Box::new(k.clone())))),
+                    }
+                }
+                (b @ Value::Braket(_, _), k @ Value::Kind(_, _)) => {
+                    match standerdize(b.clone()) {
+                        Value::Negative(b) => Value::Negative(Box::new(Value::Braket(Box::new(standerdize(*b)), Box::new(k.clone())))),
+                        b => Value::Braket(Box::new(standerdize(b.clone())), Box::new(k.clone())),
+                    }
+                }
+                _ => Value::Braket(a, b)
+            }
+        }
+        _ => value
+    }
+}
 
-    for i in 1..100 {
-        println!(">> {}", i);
-        value = Value::Braket(Box::new(value.clone()), Box::new(Value::Kind("E".to_string(), i % 3 + 1)));
-        for f in 1..=3 {
-            let value = Value::Braket(Box::new(value.clone()), Box::new(Value::Kind("F".to_string(), f))); 
-            if simplify(value, patterns) == Value::zero() {
-                println!("zero! {i} {f}");
-                return;
+fn is_lots_of_es_zero(mut value: Value) -> Value {
+    println!("s: {value}");
+    let mut es: Vec<(i32, Value)> = vec! [];
+
+    loop {
+        match value {
+            Value::Add(a, b) => {
+                match *a {
+                    Value::Negative(ref value) => {
+                        println!("{}", value);
+                        match *value.clone() {
+                            Value::Mul(n, e) => es.push((-n.into_number().expect("expected number"), *e.clone())),
+                            v => es.push((-1, v)),
+                        }
+                    }
+                    Value::Mul(n, e) => es.push((n.into_number().expect("expected number"), *e)),
+                    value => es.push((1, value)),
+                }
+                value = *b;
+            }
+            Value::Mul(ref n, ref e) => {
+                es.push((n.clone().into_number().expect("expected number"), *e.clone()));
+                break;
+            }
+            Value::Negative(ref value) => {
+                match *value.clone() {
+                    Value::Mul(n, e) => es.push((-n.into_number().expect("expected number"), *e.clone())),
+                    v => es.push((-1, v)),
+                }
+                break;
+            }
+            value => {
+                es.push((1, value));
+                break;
             }
         }
     }
 
-    println!("no zero found");
+    es = es.into_iter().map(|(n, e)| match standerdize(e) {
+        Value::Negative(e) => (-n, *e),
+        e => (n, e),
+    }).collect();
+
+    for i in (1..es.len()).rev() {
+        for j in 0..i {
+            if es[i].1 == es[j].1 {
+                es[j].0 += es[i].0;
+                es.remove(i);
+                break;
+            }
+        }
+    }
+
+    for (i, e) in &es {
+        println!("-> {i} * {e}")
+    }
+
+    return es.into_iter()
+        .filter(|(n, _)| n != &0)
+        .map(|(n, e)| if n == 1 {
+            e
+        } else if n == -1 {
+            Value::Negative(Box::new(e))
+        } else if n > 0 {
+            Value::Mul(Box::new(Value::Number(n)), Box::new(e))
+        } else {
+            Value::Negative(Box::new(Value::Mul(Box::new(Value::Number(-n)), Box::new(e))))
+        })
+        .reduce(|p, v| Value::Add(Box::new(p), Box::new(v)))
+        .unwrap_or(Value::zero());
+}
+
+pub fn find_counter_example() {
+    // let patterns = &parser::load("./src/map");
+
+    // // psudocode:
+    // //      X(n + 1) = [X(n), E(n % 3 + 1)]
+    // //      > [X(n + 1), F(b)]
+    // //      = -[[F(b), E(n + 1)], X(n)] - [[X(n), F(b)], E(n + 1)]
+
+    // let mut xn_f1 = simplify(str_build("[E(1), F(1)]"), patterns);
+    // let mut xn_f2 = simplify(str_build("[E(1), F(2)]"), patterns);
+    // let mut xn_f3 = simplify(str_build("[E(1), F(3)]"), patterns);
+
+    // println!("{xn_f1} {xn_f2} {xn_f3}");
+
+    // for n in 2..10 {
+    //     println!(">> {n}");
+    //     xn_f1 =
+    //         brak(brak(F(1), E(n % 3 + 1)), E(n)) -
+    //         brak(xn_f1, E(n & 3 + 1));
+    //     // xn_f1 = "[[E(a), F(b)], X(n)] - [[X(n), F(b)], E(a)]";
+    //     // xn_f2 = 
+    //     // xn_f3 = 
+    // }
+
+    // println!("no zero found");
+}
+
+pub fn str_build(str: &str) -> Value {
+    return ast_build(&parser::parse(str), &Scope(HashMap::new()));
+}
+
+pub fn check_conter_example_from_string(str: &str) {
+    let ast = str_build(str);
+    let patterns = &parser::load("./src/map");
+    if is_lots_of_es_zero(simplify(ast, patterns)) == Value::zero() {
+        println!("Is zero!")
+    } else {
+        println!("Not zero :(")
+    }
+}
+
+fn make(src: &str, patterns: &Vec<(AST, AST)>, scope: &Scope) -> Value {
+    is_lots_of_es_zero(simplify(ast_build(&parser::parse(src), scope), patterns))
+}
+
+fn test(b: i32) -> Option<Value> {
+    let patterns = &parser::load("./src/map");
+
+    let mut nx   = E(1);
+    let mut nx_f = simplify(brak(E(1), F(b)), patterns);
+    let mut nx_h = simplify(brak(E(1), H(b)), patterns);
+
+
+    for n in 1..5 {
+        println!(">> {}", n - 1);
+
+        println!("nx   = {nx}");
+        println!("nx_f = {nx_f}");
+        println!("nx_h = {nx_h}");
+    
+        let scope = &Scope({
+            let mut map = HashMap::new();
+            map.insert("b".to_string(), Value::Number(b));
+            map.insert("n".to_string(), Value::Number(n % 3 + 1));
+            map.insert("nx".to_string(), nx);
+            map.insert("nx_f".to_string(), nx_f);
+            map.insert("nx_h".to_string(), nx_h);
+            map
+        });
+
+        nx = make("[nx, E(n)]", patterns, scope); 
+
+        nx_f = if n % 3 == b {
+            make("-nx_h - [nx_f, E(n)]", patterns, scope)
+        } else {
+            make("-[nx_f, E(n)]", patterns, scope)
+        };
+    
+        nx_h = make(
+            "[-C(b, n) * E(n), nx] - [nx_h, E(n)]",
+            patterns, scope
+        ); 
+
+
+        if nx_f == Value::zero() {
+            return Some(nx_f);
+        }
+    }
+
+    return None;
+}
+
+fn main() {
+    find_counter_example();
+
+    test(1);
+    // check_conter_example_from_string("[[[[[[E(1), E(2)], E(3)], E(1)], E(2)], E(3)], F(1)]");
+
+
+    
 }

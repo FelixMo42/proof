@@ -77,7 +77,7 @@ fn parse_word(src: Parser) -> Option<(Parser, String)> {
     let start = src.index;
 
     let src = src.starts_with(|chr| chr.is_ascii_alphabetic())?;
-    let src = src.next_while(|chr| chr.is_ascii_alphabetic());
+    let src = src.next_while(|chr| chr.is_ascii_alphabetic() || chr == '_');
 
     let end = src.index;
 

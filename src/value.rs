@@ -18,6 +18,14 @@ impl Value {
     pub fn one() -> Value {
         return Value::Number(1)
     }
+
+    pub fn into_number(&self) -> Option<i32> {
+        match self {
+            Value::Number(num) => Some(*num),
+            Value::Negative(num) => Some(-num.into_number()?),
+            _ => None,
+        }
+    }
 }
 
 impl Display for Value {
@@ -27,8 +35,36 @@ impl Display for Value {
             Value::Braket(a, b) => write!(f, "[{a}, {b}]"),
             Value::Kind(name, value) => write!(f, "{name}({value})"),
             Value::Negative(value) => write!(f, "-{value}"),
-            Value::Add(a, b) => write!(f, "{a} + {b}"),
-            Value::Mul(a, b) => write!(f, "{a} * {b}"),
+            Value::Add(a, b) => write!(f, "({a} + {b})"),
+            Value::Mul(a, b) => write!(f, "({a} * {b})"),
         }
+    }
+}
+
+#[inline]
+pub fn brak(a: Value, b: Value) -> Value {
+    return Value::Braket(Box::new(a), Box::new(b));
+}
+
+#[inline]
+pub fn H(n: i32) -> Value {
+    return Value::Kind("H".to_string(), n);
+}
+
+#[inline]
+pub fn E(n: i32) -> Value {
+    return Value::Kind("E".to_string(), n);
+}
+
+#[inline]
+pub fn F(n: i32) -> Value {
+    return Value::Kind("F".to_string(), n);
+}
+
+pub fn number(n: i32) -> Value {
+    if n >= 0 {
+        Value::Number(n)
+    } else {
+        Value::Negative(Box::new(Value::Number(-n)))
     }
 }
