@@ -47,17 +47,17 @@ pub fn brak(a: Value, b: Value) -> Value {
 }
 
 #[inline]
-pub fn H(n: i32) -> Value {
+pub fn h(n: i32) -> Value {
     return Value::Kind("H".to_string(), n);
 }
 
 #[inline]
-pub fn E(n: i32) -> Value {
+pub fn e(n: i32) -> Value {
     return Value::Kind("E".to_string(), n);
 }
 
 #[inline]
-pub fn F(n: i32) -> Value {
+pub fn f(n: i32) -> Value {
     return Value::Kind("F".to_string(), n);
 }
 

@@ -1,12 +1,13 @@
 pub mod parser;
 pub mod value;
+pub mod v2;
 
-use std::{collections::HashMap, io::Write};
+use std::collections::HashMap;
 
 use parser::AST;
 use value::*;
 
-struct Scope(HashMap<String, Value>);
+pub struct Scope(HashMap<String, Value>);
 
 impl Scope {
     fn set(&mut self, name: &str, value: Value) {
@@ -284,11 +285,11 @@ pub fn check_conter_example_from_string(str: &str) {
     println!("{value}");
 }
 
-fn make(src: &str, patterns: &Vec<(AST, AST)>, scope: &Scope) -> Value {
+pub fn make(src: &str, patterns: &Vec<(AST, AST)>, scope: &Scope) -> Value {
     is_lots_of_es_zero(simplify(ast_build(&parser::parse(src), scope), patterns))
 }
 
-fn n_f(n: i32, b: i32) -> Value {
+pub fn n_f(n: i32, b: i32) -> Value {
     let patterns = &parser::load("./src/map");
 
     let mut scope = Scope(HashMap::new());
@@ -304,7 +305,7 @@ fn n_f(n: i32, b: i32) -> Value {
         scope.0.insert("nx_f".to_string(), nx_f);
         scope.0.insert("nx_h".to_string(), nx_h);
 
-        nx = brak(nx, E(n % 3 + 1)); 
+        nx = brak(nx, e(n % 3 + 1)); 
 
         nx_f = if n & 3 + 1 == b {
             make("[nx_f, E(n)] - nx_h ", patterns, &scope)
@@ -321,7 +322,7 @@ fn n_f(n: i32, b: i32) -> Value {
     return nx_f;
 }
 
-fn find_conter_exmaple(n: i32) -> bool {
+pub fn find_conter_exmaple(n: i32) -> bool {
     let patterns = &parser::load("./src/map");
 
     let mut scope = Scope(HashMap::new());
@@ -345,7 +346,7 @@ fn find_conter_exmaple(n: i32) -> bool {
         scope.0.insert("nx_h2".to_string(), nx_h2);
         scope.0.insert("nx_h3".to_string(), nx_h3);
 
-        nx = brak(nx, E(n % 3 + 1)); 
+        nx = brak(nx, e(n % 3 + 1)); 
 
         nx_f1 = if n & 3 + 1 == 1 {
             make("[nx_f1, E(n)] - nx_h1", patterns, &scope)
@@ -378,80 +379,10 @@ fn find_conter_exmaple(n: i32) -> bool {
     return false;
 }
 
-
-fn bench() -> u64 {
-    use std::time::Instant;
-    let now = Instant::now();
-
-    let result = n_f(10, 3);
-
-    return now.elapsed().as_nanos() as u64;
-}
-
-fn make_es(n: i32) -> Value {
-    if n == 0 {
-        return E(1);
-    }
-
-    return brak(make_es(n - 1), E(n % 3 + 1)); 
-}
-
 fn main() {
+    v2::find_counter_example();
+
     let patterns = &parser::load("./src/map");
     let scope = &Scope(HashMap::new());
-
-    // println!("{}", n_f(2, 3));
-    // println!("{}", make("[[E(1), E(2)], F(3)]", patterns, scope));
-
-    find_conter_exmaple(100);
-
-    // for b in 1..=3 {
-    //     for n in 1..=5 {
-    //         let got = n_f(n, b);
-
-    //         if got == Value::zero() {
-    //             println!("[N({n}), F({b})] = 0!!!!!!");
-    //         }
-    //     }
-    // }
-
-    // [E(1), F(2)];
-
-    // n_f(100, 3);
-
-    // println!("{}", make("[[E(1), E(2)], F(3)]", patterns, scope));
-
-    
-
-    // {
-    //     let result = n_f(5, 3);
-    //     let expected = str_build("(-[[[[[[[[[E(2), E(1)], E(3)], E(1)], E(2)], E(3)], E(1)], E(2)], E(3)], E(1)]) + (-[[[[[[[[E(3), E(2)], E(1)], E(2)], E(3)], E(1)], E(2)], E(3)], E(1)]) + (5 * [[[[[[[[[E(2), E(1)], E(3)], E(1)], E(2)], E(3)], E(1)], E(2)], E(3)], E(1)])");
-    //     if result == expected {
-    //         println!("(√) Got correct result ");
-    //     } else {
-    //         println!("(x) Got incorrect result");
-    //         println!(" exp: {expected}");
-    //         println!(" got: {result}");
-    //         println!("{}", expected == result);
-    //         return;
-    //     }
-    // }
-
-    // {
-    //     let mut total = 0;
-
-    //     for _ in 0..100 {
-    //         total += bench()
-    //     }
-
-    //     let avg_time = std::time::Duration::from_nanos(total / 100);
-    //     println!("Elapsed: {:.2?}", avg_time);
-
-    //     let mut file = std::fs::OpenOptions::new()
-    //         .write(true)
-    //         .append(true)
-    //         .open("times")
-    //         .unwrap()
-    //         .write_all(format!("{},", total / 100).as_bytes());
-    // }
+    // println!("\nn4_h1 = {}", make("[[[[E(1), E(2)], E(3)], E(1)], H(1)]", patterns, scope));
 }
