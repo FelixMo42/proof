@@ -1,7 +1,7 @@
 pub mod parser;
 pub mod value;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Write};
 
 use parser::AST;
 use value::*;
@@ -49,6 +49,10 @@ fn ast_match(pattern: &AST, value: &Value, scope: &mut Scope) -> bool {
         AST::Kind(name, avalue) => {
             if let Value::Kind(vname, vvalue) = value {
                 if name == vname {
+                    if let Some(avalue) = scope.get(avalue) {
+                        return avalue == Value::Number(*vvalue); 
+                    }
+
                     scope.set(avalue, Value::Number(*vvalue));
                     return true;
                 }
@@ -176,7 +180,7 @@ fn standerdize(value: Value) -> Value {
                     if na > nb {
                         Value::Braket(a, b)
                     } else {
-                        Value::Braket(b, a)
+                        Value::Negative(Box::new(Value::Braket(b, a)))
                     }
                 }
                 (k @ Value::Kind(_, _),  b @ Value::Braket(_, _)) => {
@@ -199,7 +203,7 @@ fn standerdize(value: Value) -> Value {
 }
 
 fn is_lots_of_es_zero(mut value: Value) -> Value {
-    println!("s: {value}");
+    // println!("s: {value}");
     let mut es: Vec<(i32, Value)> = vec! [];
 
     loop {
@@ -207,7 +211,6 @@ fn is_lots_of_es_zero(mut value: Value) -> Value {
             Value::Add(a, b) => {
                 match *a {
                     Value::Negative(ref value) => {
-                        println!("{}", value);
                         match *value.clone() {
                             Value::Mul(n, e) => es.push((-n.into_number().expect("expected number"), *e.clone())),
                             v => es.push((-1, v)),
@@ -251,9 +254,9 @@ fn is_lots_of_es_zero(mut value: Value) -> Value {
         }
     }
 
-    for (i, e) in &es {
-        println!("-> {i} * {e}")
-    }
+    // for (i, e) in &es {
+    //     println!("-> {i} * {e}")
+    // }
 
     return es.into_iter()
         .filter(|(n, _)| n != &0)
@@ -270,33 +273,6 @@ fn is_lots_of_es_zero(mut value: Value) -> Value {
         .unwrap_or(Value::zero());
 }
 
-pub fn find_counter_example() {
-    // let patterns = &parser::load("./src/map");
-
-    // // psudocode:
-    // //      X(n + 1) = [X(n), E(n % 3 + 1)]
-    // //      > [X(n + 1), F(b)]
-    // //      = -[[F(b), E(n + 1)], X(n)] - [[X(n), F(b)], E(n + 1)]
-
-    // let mut xn_f1 = simplify(str_build("[E(1), F(1)]"), patterns);
-    // let mut xn_f2 = simplify(str_build("[E(1), F(2)]"), patterns);
-    // let mut xn_f3 = simplify(str_build("[E(1), F(3)]"), patterns);
-
-    // println!("{xn_f1} {xn_f2} {xn_f3}");
-
-    // for n in 2..10 {
-    //     println!(">> {n}");
-    //     xn_f1 =
-    //         brak(brak(F(1), E(n % 3 + 1)), E(n)) -
-    //         brak(xn_f1, E(n & 3 + 1));
-    //     // xn_f1 = "[[E(a), F(b)], X(n)] - [[X(n), F(b)], E(a)]";
-    //     // xn_f2 = 
-    //     // xn_f3 = 
-    // }
-
-    // println!("no zero found");
-}
-
 pub fn str_build(str: &str) -> Value {
     return ast_build(&parser::parse(str), &Scope(HashMap::new()));
 }
@@ -304,70 +280,178 @@ pub fn str_build(str: &str) -> Value {
 pub fn check_conter_example_from_string(str: &str) {
     let ast = str_build(str);
     let patterns = &parser::load("./src/map");
-    if is_lots_of_es_zero(simplify(ast, patterns)) == Value::zero() {
-        println!("Is zero!")
-    } else {
-        println!("Not zero :(")
-    }
+    let value = is_lots_of_es_zero(simplify(ast, patterns));
+    println!("{value}");
 }
 
 fn make(src: &str, patterns: &Vec<(AST, AST)>, scope: &Scope) -> Value {
     is_lots_of_es_zero(simplify(ast_build(&parser::parse(src), scope), patterns))
 }
 
-fn test(b: i32) -> Option<Value> {
+fn n_f(n: i32, b: i32) -> Value {
     let patterns = &parser::load("./src/map");
 
-    let mut nx   = E(1);
-    let mut nx_f = simplify(brak(E(1), F(b)), patterns);
-    let mut nx_h = simplify(brak(E(1), H(b)), patterns);
+    let mut scope = Scope(HashMap::new());
+    scope.0.insert("b".to_string(), Value::Number(b));
 
+    let mut nx   = make("[E(1), E(2)]", patterns, &scope);
+    let mut nx_f = make("[[E(1), E(2)], F(b)]", patterns, &scope);
+    let mut nx_h = make("[[E(1), E(2)], H(b)]", patterns, &scope);
 
-    for n in 1..5 {
-        println!(">> {}", n - 1);
+    for n in 2..n {
+        scope.0.insert("n".to_string(), Value::Number(n % 3 + 1));
+        scope.0.insert("nx".to_string(), nx.clone());
+        scope.0.insert("nx_f".to_string(), nx_f);
+        scope.0.insert("nx_h".to_string(), nx_h);
 
-        println!("nx   = {nx}");
-        println!("nx_f = {nx_f}");
-        println!("nx_h = {nx_h}");
-    
-        let scope = &Scope({
-            let mut map = HashMap::new();
-            map.insert("b".to_string(), Value::Number(b));
-            map.insert("n".to_string(), Value::Number(n % 3 + 1));
-            map.insert("nx".to_string(), nx);
-            map.insert("nx_f".to_string(), nx_f);
-            map.insert("nx_h".to_string(), nx_h);
-            map
-        });
+        nx = brak(nx, E(n % 3 + 1)); 
 
-        nx = make("[nx, E(n)]", patterns, scope); 
-
-        nx_f = if n % 3 == b {
-            make("-nx_h - [nx_f, E(n)]", patterns, scope)
+        nx_f = if n & 3 + 1 == b {
+            make("[nx_f, E(n)] - nx_h ", patterns, &scope)
         } else {
-            make("-[nx_f, E(n)]", patterns, scope)
+            make("[nx_f, E(n)]", patterns, &scope)
         };
-    
+
         nx_h = make(
-            "[-C(b, n) * E(n), nx] - [nx_h, E(n)]",
-            patterns, scope
+            "[nx_h, E(n)] - C(b, n) * [nx, E(n)]",
+            patterns, &scope
         ); 
+    }
 
+    return nx_f;
+}
 
-        if nx_f == Value::zero() {
-            return Some(nx_f);
+fn find_conter_exmaple(n: i32) -> bool {
+    let patterns = &parser::load("./src/map");
+
+    let mut scope = Scope(HashMap::new());
+
+    let mut nx   = make("[E(1), E(2)]", patterns, &scope);
+    let mut nx_f1 = make("[[E(1), E(2)], F(1)]", patterns, &scope);
+    let mut nx_h1 = make("[[E(1), E(2)], H(1)]", patterns, &scope);
+    let mut nx_f2 = make("[[E(1), E(2)], F(2)]", patterns, &scope);
+    let mut nx_h2 = make("[[E(1), E(2)], H(2)]", patterns, &scope);
+    let mut nx_f3 = make("[[E(1), E(2)], F(3)]", patterns, &scope);
+    let mut nx_h3 = make("[[E(1), E(2)], H(3)]", patterns, &scope);
+
+    for n in 2..n {
+        println!("Checking {}", n);
+        scope.0.insert("n".to_string(), Value::Number(n % 3 + 1));
+        scope.0.insert("nx".to_string(), nx.clone());
+        scope.0.insert("nx_f1".to_string(), nx_f1);
+        scope.0.insert("nx_f2".to_string(), nx_f2);
+        scope.0.insert("nx_f3".to_string(), nx_f3);
+        scope.0.insert("nx_h1".to_string(), nx_h1);
+        scope.0.insert("nx_h2".to_string(), nx_h2);
+        scope.0.insert("nx_h3".to_string(), nx_h3);
+
+        nx = brak(nx, E(n % 3 + 1)); 
+
+        nx_f1 = if n & 3 + 1 == 1 {
+            make("[nx_f1, E(n)] - nx_h1", patterns, &scope)
+        } else {
+            make("[nx_f1, E(n)]", patterns, &scope)
+        };
+
+        nx_f2 = if n & 3 + 1 == 2 {
+            make("[nx_f2, E(n)] - nx_h2", patterns, &scope)
+        } else {
+            make("[nx_f2, E(n)]", patterns, &scope)
+        };
+
+        nx_f3 = if n & 3 + 1 == 3 {
+            make("[nx_f3, E(n)] - nx_h3", patterns, &scope)
+        } else {
+            make("[nx_f3, E(n)]", patterns, &scope)
+        };
+
+        nx_h1 = make("[nx_h1, E(n)] - C(1, n) * [nx, E(n)]", patterns, &scope); 
+        nx_h2 = make("[nx_h2, E(n)] - C(2, n) * [nx, E(n)]", patterns, &scope); 
+        nx_h3 = make("[nx_h3, E(n)] - C(3, n) * [nx, E(n)]", patterns, &scope); 
+
+        if nx_f1 == Value::zero() && nx_f2 == Value::zero() && nx_f3 == Value::zero()  {
+            println!("ZERO!!! @ {}", n);
+            return true;
         }
     }
 
-    return None;
+    return false;
+}
+
+
+fn bench() -> u64 {
+    use std::time::Instant;
+    let now = Instant::now();
+
+    let result = n_f(10, 3);
+
+    return now.elapsed().as_nanos() as u64;
+}
+
+fn make_es(n: i32) -> Value {
+    if n == 0 {
+        return E(1);
+    }
+
+    return brak(make_es(n - 1), E(n % 3 + 1)); 
 }
 
 fn main() {
-    find_counter_example();
+    let patterns = &parser::load("./src/map");
+    let scope = &Scope(HashMap::new());
 
-    test(1);
-    // check_conter_example_from_string("[[[[[[E(1), E(2)], E(3)], E(1)], E(2)], E(3)], F(1)]");
+    // println!("{}", n_f(2, 3));
+    // println!("{}", make("[[E(1), E(2)], F(3)]", patterns, scope));
 
+    find_conter_exmaple(100);
+
+    // for b in 1..=3 {
+    //     for n in 1..=5 {
+    //         let got = n_f(n, b);
+
+    //         if got == Value::zero() {
+    //             println!("[N({n}), F({b})] = 0!!!!!!");
+    //         }
+    //     }
+    // }
+
+    // [E(1), F(2)];
+
+    // n_f(100, 3);
+
+    // println!("{}", make("[[E(1), E(2)], F(3)]", patterns, scope));
 
     
+
+    // {
+    //     let result = n_f(5, 3);
+    //     let expected = str_build("(-[[[[[[[[[E(2), E(1)], E(3)], E(1)], E(2)], E(3)], E(1)], E(2)], E(3)], E(1)]) + (-[[[[[[[[E(3), E(2)], E(1)], E(2)], E(3)], E(1)], E(2)], E(3)], E(1)]) + (5 * [[[[[[[[[E(2), E(1)], E(3)], E(1)], E(2)], E(3)], E(1)], E(2)], E(3)], E(1)])");
+    //     if result == expected {
+    //         println!("(√) Got correct result ");
+    //     } else {
+    //         println!("(x) Got incorrect result");
+    //         println!(" exp: {expected}");
+    //         println!(" got: {result}");
+    //         println!("{}", expected == result);
+    //         return;
+    //     }
+    // }
+
+    // {
+    //     let mut total = 0;
+
+    //     for _ in 0..100 {
+    //         total += bench()
+    //     }
+
+    //     let avg_time = std::time::Duration::from_nanos(total / 100);
+    //     println!("Elapsed: {:.2?}", avg_time);
+
+    //     let mut file = std::fs::OpenOptions::new()
+    //         .write(true)
+    //         .append(true)
+    //         .open("times")
+    //         .unwrap()
+    //         .write_all(format!("{},", total / 100).as_bytes());
+    // }
 }

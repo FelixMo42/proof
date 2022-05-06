@@ -35,8 +35,8 @@ impl Display for Value {
             Value::Braket(a, b) => write!(f, "[{a}, {b}]"),
             Value::Kind(name, value) => write!(f, "{name}({value})"),
             Value::Negative(value) => write!(f, "-{value}"),
-            Value::Add(a, b) => write!(f, "({a} + {b})"),
-            Value::Mul(a, b) => write!(f, "({a} * {b})"),
+            Value::Add(a, b) => write!(f, "{a} + {b}"),
+            Value::Mul(a, b) => write!(f, "{a} * {b}"),
         }
     }
 }
